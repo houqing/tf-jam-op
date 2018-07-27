@@ -1,0 +1,44 @@
+--- tensorflow--orig/python/ops/gradients_impl.py	2018-07-01 08:14:07.606747150 +0800
++++ tensorflow--jam/python/ops/gradients_impl.py	2018-07-13 11:54:51.622023731 +0800
+@@ -53,6 +53,15 @@
+ from tensorflow.python.platform import tf_logging as logging
+ from tensorflow.python.util.tf_export import tf_export
+ 
++
++from tensorflow.python.ops.logging_ops import Print
++from tensorflow.python.framework.load_library import load_op_library
++from tensorflow.python.framework.dtypes import float16
++
++
++jamme_mod = load_op_library('jamme-op.so')
++
++
+ # Warn the user if we convert a sparse representation to dense with at
+ # least this number of elements.
+ _LARGE_SPARSE_NUM_ELEMENTS = 100000000
+@@ -494,6 +503,8 @@
+                             gate_gradients, aggregation_method, stop_gradients)
+ 
+ 
++jamme_op_list=["AddN", "BiasAddGrad", "Conv2DBackpropFilter", "Conv2DBackpropInput", "FusedBatchNormGradV2", "MatMul", "RealDiv"]
++
+ def _GradientsHelper(ys, xs, grad_ys, name, colocate_gradients_with_ops,
+                      gate_gradients, aggregation_method, stop_gradients):
+   """Implementation of gradients()."""
+@@ -639,7 +650,15 @@
+                 # node to the graph to compute gradients.
+                 in_grads = _MaybeCompile(grad_scope, op, func_call,
+                                          lambda: _SymGrad(op, out_grads))
+-              in_grads = _AsList(in_grads)
++              in_grads_orig = _AsList(in_grads)
++              in_grads = []
++              for i in in_grads_orig:
++                  if i is not None and i.dtype == float16 and i.op.type in jamme_op_list:
++                      print("--grad--", "op.type=", i.op.type, "op.def.name=", i.op.op_def.name)
++                      #i = Print(i, [i, i.op.type, i.op.op_def.name], "===jam-grad-op===")
++                      i, i_orig, sim = jamme_mod.jam_me(i)
++                      #i = Print(i, [i, i_orig, i.op.type, i.op.op_def.name], "===jam-grad-data===")
++                  in_grads.append(i)
+               _VerifyGeneratedGradients(in_grads, op)
+               if gate_gradients and len([x for x in in_grads
+                                          if x is not None]) > 1:

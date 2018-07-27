@@ -1,0 +1,51 @@
+--- tensorflow--orig/python/ops/gradients_impl.py	2018-07-01 08:14:07.606747150 +0800
++++ tensorflow--jam/python/ops/gradients_impl.py	2018-07-20 11:47:22.024398628 +0800
+@@ -53,6 +53,35 @@
+ from tensorflow.python.platform import tf_logging as logging
+ from tensorflow.python.util.tf_export import tf_export
+ 
++
++from tensorflow.python.ops.logging_ops import Print
++from tensorflow.python.framework.load_library import load_op_library
++
++
++jamme_mod = load_op_library('jamme-op.so')
++
++jamme_op_list=["AddN", "BiasAddGrad", "Conv2DBackpropFilter", "Conv2DBackpropInput", "FusedBatchNormGradV2", "MatMul", "RealDiv"]
++jamme_op_list_printed=[]
++
++def _do_jam_grad(inputs, info=""):
++    if inputs is not None:
++        #print("__grad_op :", inputs.dtype.name, "\t", inputs.op._id, "\t", inputs.op.type, "\t", "!" if inputs.op.type in jamme_op_list else "")
++        #print("--grad--", inputs.dtype.name, "name", inputs.name, "op.name", inputs.op.name, "op.id", inputs.op._id, "op.type=", inputs.op.type, "op.def.name=", inputs.op.op_def.name)
++        if inputs.op.type not in jamme_op_list_printed:
++            #print("__grad_op :", inputs.op.type, "!" if inputs.op.type in jamme_op_list else "")
++            jamme_op_list_printed.append(inputs.op.type)
++        if inputs.dtype in [dtypes.float16, dtypes.float32, dtypes.float32_ref]:
++            #####inputs = Print(inputs, [inputs], "====resnet grad:" + info + "aaa====")
++            info_str = str(inputs.op._id) + "#" + inputs.name.replace("/", "+").replace(":", "+") + "#" + inputs.dtype.name + "#" + "grad"
++            #info_str = ""
++            inputs, inputs_orig, sim = jamme_mod.jam_me(inputs, info_str)
++            #io_ops.save_v2(''.join([inputs.name.replace("/", "+").replace(":", "+"), "jam"]), inputs.name, [], [inputs])
++            #####inputs = Print(inputs, [inputs, inputs_orig, sim], "====resnet grad:" + info + "bbb====")
++        else:
++            print(inputs.dtype)
++    return inputs
++
++
+ # Warn the user if we convert a sparse representation to dense with at
+ # least this number of elements.
+ _LARGE_SPARSE_NUM_ELEMENTS = 100000000
+@@ -639,7 +668,11 @@
+                 # node to the graph to compute gradients.
+                 in_grads = _MaybeCompile(grad_scope, op, func_call,
+                                          lambda: _SymGrad(op, out_grads))
+-              in_grads = _AsList(in_grads)
++              in_grads_orig = _AsList(in_grads)
++              in_grads = []
++              for i in in_grads_orig:
++                  i = _do_jam_grad(i)
++                  in_grads.append(i)
+               _VerifyGeneratedGradients(in_grads, op)
+               if gate_gradients and len([x for x in in_grads
+                                          if x is not None]) > 1:

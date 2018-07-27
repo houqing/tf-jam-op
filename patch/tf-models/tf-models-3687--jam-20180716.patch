@@ -1,0 +1,178 @@
+diff -Naur tf-models-3687--orig/official/resnet/imagenet_main.py tf-models-3687--jam/official/resnet/imagenet_main.py
+--- tf-models-3687--orig/official/resnet/imagenet_main.py	2018-04-10 02:14:59.000000000 +0800
++++ tf-models-3687--jam/official/resnet/imagenet_main.py	2018-07-11 07:48:08.201011571 +0800
+@@ -178,7 +178,8 @@
+ 
+   if is_training:
+     # Shuffle the input files
+-    dataset = dataset.shuffle(buffer_size=_NUM_TRAIN_FILES)
++#    dataset = dataset.shuffle(buffer_size=_NUM_TRAIN_FILES)
++    dataset = dataset
+ 
+   num_images = is_training and _NUM_IMAGES['train'] or _NUM_IMAGES['validation']
+ 
+diff -Naur tf-models-3687--orig/official/resnet/resnet_model.py tf-models-3687--jam/official/resnet/resnet_model.py
+--- tf-models-3687--orig/official/resnet/resnet_model.py	2018-04-10 02:14:59.000000000 +0800
++++ tf-models-3687--jam/official/resnet/resnet_model.py	2018-07-17 02:32:40.141056800 +0800
+@@ -33,6 +33,28 @@
+ 
+ import tensorflow as tf
+ 
++
++from tensorflow.python.framework import ops
++jamme_mod = tf.load_op_library('jamme-op.so')
++
++
++#ops.NotDifferentiable("JamMe")
++@ops.RegisterGradient("JamMe")
++def _jam_me_grad(op, grad, nop_1, nop_2):
++#  print("----", a'grad)
++#  grad = tf.Print(grad, [grad], "===grad===")
++  return grad
++#  return list(grad) + [None] * (len(op.inputs) - 1)
++#  return grad
++#  outputs = jamme_mod.jam_me_grad(grad)
++#  print("====aa============")
++#  outputs = tf.Print(outputs, [outputs, "--------"], "====aa====")
++#  return [outputs]
++#  grad = jamme_mod.jam_me_grad(grad)
++#  grad = tf.Print(grad, [grad, "--------"], "====aa====")
++#  return [grad]
++
++
+ _BATCH_NORM_DECAY = 0.997
+ _BATCH_NORM_EPSILON = 1e-5
+ DEFAULT_VERSION = 2
+@@ -48,10 +70,20 @@
+   """Performs a batch normalization using a standard set of parameters."""
+   # We set fused=True for a significant performance boost. See
+   # https://www.tensorflow.org/performance/performance_guide#common_fused_ops
++  outputs = tf.layers.batch_normalization(
++      inputs=inputs, axis=1 if data_format == 'channels_first' else 3,
++      momentum=_BATCH_NORM_DECAY, epsilon=_BATCH_NORM_EPSILON, center=True,
++      scale=True, training=training, fused=True)
++  outputs= tf.Print(outputs, [outputs], "====resnet:batch_norm aaa====")
++  outputs, inputs_orig, sim = jamme_mod.jam_me(outputs)
++  outputs= tf.Print(outputs, [outputs, inputs_orig, sim], "====resnet:batch_norm bbb====")
++  return outputs
++'''
+   return tf.layers.batch_normalization(
+       inputs=inputs, axis=1 if data_format == 'channels_first' else 3,
+       momentum=_BATCH_NORM_DECAY, epsilon=_BATCH_NORM_EPSILON, center=True,
+       scale=True, training=training, fused=True)
++'''
+ 
+ 
+ def fixed_padding(inputs, kernel_size, data_format):
+@@ -88,12 +120,22 @@
+   if strides > 1:
+     inputs = fixed_padding(inputs, kernel_size, data_format)
+ 
++  outputs = tf.layers.conv2d(
++      inputs=inputs, filters=filters, kernel_size=kernel_size, strides=strides,
++      padding=('SAME' if strides == 1 else 'VALID'), use_bias=False,
++      kernel_initializer=tf.variance_scaling_initializer(),
++      data_format=data_format)
++  outputs = tf.Print(outputs, [outputs], "====resnet:conv2d aaa====")
++  outputs, inputs_orig, sim = jamme_mod.jam_me(outputs)
++  outputs = tf.Print(outputs, [outputs, inputs_orig, sim], "====resnet:conv2d bbb====")
++  return outputs
++'''
+   return tf.layers.conv2d(
+       inputs=inputs, filters=filters, kernel_size=kernel_size, strides=strides,
+       padding=('SAME' if strides == 1 else 'VALID'), use_bias=False,
+       kernel_initializer=tf.variance_scaling_initializer(),
+       data_format=data_format)
+-
++'''
+ 
+ ################################################################################
+ # ResNet block definitions.
+@@ -140,6 +182,9 @@
+       data_format=data_format)
+   inputs = batch_norm(inputs, training, data_format)
+   inputs += shortcut
++  inputs = tf.Print(inputs, [inputs], "====resnet:bb-v1:eltwise-add aaa====")
++  inputs, inputs_orig, sim = jamme_mod.jam_me(inputs)
++  inputs = tf.Print(inputs, [inputs, inputs_orig], "====resnet:bb-v1:eltwise-add bbb====")
+   inputs = tf.nn.relu(inputs)
+ 
+   return inputs
+@@ -188,7 +233,14 @@
+       inputs=inputs, filters=filters, kernel_size=3, strides=1,
+       data_format=data_format)
+ 
++  outputs = inputs + shortcut
++  outputs = tf.Print(outputs, [outputs], "====resnet:bb-v2:eltwise-add aaa====")
++  outputs, inputs_orig, sim = jamme_mod.jam_me(outputs)
++  outputs = tf.Print(outputs, [outputs, inputs_orig], "====resnet:bb-v2:eltwise-add bbb====")
++  return outputs
++'''
+   return inputs + shortcut
++'''
+ 
+ 
+ def _bottleneck_block_v1(inputs, filters, training, projection_shortcut,
+@@ -241,6 +293,9 @@
+       data_format=data_format)
+   inputs = batch_norm(inputs, training, data_format)
+   inputs += shortcut
++  inputs = tf.Print(inputs, [inputs], "====resnet:bnb-v1:eltwise-add aaa====")
++  inputs, inputs_orig, sim = jamme_mod.jam_me(inputs)
++  inputs = tf.Print(inputs, [inputs, inputs_orig], "====resnet:bnb-v1:eltwise-add bbb====")
+   inputs = tf.nn.relu(inputs)
+ 
+   return inputs
+@@ -303,7 +358,15 @@
+       inputs=inputs, filters=4 * filters, kernel_size=1, strides=1,
+       data_format=data_format)
+ 
++  outputs = inputs + shortcut
++  outputs = tf.Print(outputs, [outputs], "====resnet:bnb-v2:eltwise-add aaa====")
++  outputs, inputs_orig, sim = jamme_mod.jam_me(outputs)
++  outputs = tf.Print(outputs, [outputs, inputs_orig], "====resnet:bnb-v2:eltwise-add bbb====")
++
++  return outputs
++'''
+   return inputs + shortcut
++'''
+ 
+ 
+ def block_layer(inputs, filters, bottleneck, block_fn, blocks, strides,
+@@ -532,9 +595,15 @@
+       # here because it performs better than AveragePooling2D.
+       axes = [2, 3] if self.data_format == 'channels_first' else [1, 2]
+       inputs = tf.reduce_mean(inputs, axes, keepdims=True)
++      inputs = tf.Print(inputs, [inputs], "====resnet:reduce_mean aaa====")
++      inputs, inputs_orig, sim = jamme_mod.jam_me(inputs)
++      inputs = tf.Print(inputs, [inputs, inputs_orig, sim], "====resnet:reduce_mean bbb====")
+       inputs = tf.identity(inputs, 'final_reduce_mean')
+ 
+       inputs = tf.reshape(inputs, [-1, self.final_size])
+       inputs = tf.layers.dense(inputs=inputs, units=self.num_classes)
++      inputs = tf.Print(inputs, [inputs], "====resnet:dense/activate aaa====")
++      inputs, inputs_orig, sim = jamme_mod.jam_me(inputs)
++      inputs = tf.Print(inputs, [inputs, inputs_orig], "====resnet:dense/activate bbb====")
+       inputs = tf.identity(inputs, 'final_dense')
+       return inputs
+diff -Naur tf-models-3687--orig/official/resnet/resnet_run_loop.py tf-models-3687--jam/official/resnet/resnet_run_loop.py
+--- tf-models-3687--orig/official/resnet/resnet_run_loop.py	2018-04-10 02:14:59.000000000 +0800
++++ tf-models-3687--jam/official/resnet/resnet_run_loop.py	2018-07-11 04:41:08.121190266 +0800
+@@ -72,7 +72,8 @@
+   if is_training:
+     # Shuffle the records. Note that we shuffle before repeating to ensure
+     # that the shuffling respects epoch boundaries.
+-    dataset = dataset.shuffle(buffer_size=shuffle_buffer)
++    #dataset = dataset.shuffle(buffer_size=shuffle_buffer)
++    dataset = dataset
+ 
+   # If we are training over multiple epochs before evaluating, repeat the
+   # dataset for the appropriate number of epochs.
+@@ -381,6 +382,7 @@
+       inter_op_parallelism_threads=flags.inter_op_parallelism_threads,
+       intra_op_parallelism_threads=flags.intra_op_parallelism_threads,
+       allow_soft_placement=True)
++  session_config.gpu_options.allow_growth = True
+ 
+   # Set up a RunConfig to save checkpoint and set session config.
+   run_config = tf.estimator.RunConfig().replace(save_checkpoints_secs=1e9,

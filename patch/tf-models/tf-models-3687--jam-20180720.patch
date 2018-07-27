@@ -1,0 +1,361 @@
+diff -Naur tf-models-3687--orig/official/resnet/imagenet_main.py tf-models-3687--jam/official/resnet/imagenet_main.py
+--- tf-models-3687--orig/official/resnet/imagenet_main.py	2018-04-10 02:14:59.000000000 +0800
++++ tf-models-3687--jam/official/resnet/imagenet_main.py	2018-07-11 07:48:08.201011571 +0800
+@@ -178,7 +178,8 @@
+ 
+   if is_training:
+     # Shuffle the input files
+-    dataset = dataset.shuffle(buffer_size=_NUM_TRAIN_FILES)
++#    dataset = dataset.shuffle(buffer_size=_NUM_TRAIN_FILES)
++    dataset = dataset
+ 
+   num_images = is_training and _NUM_IMAGES['train'] or _NUM_IMAGES['validation']
+ 
+diff -Naur tf-models-3687--orig/official/resnet/resnet_model.py tf-models-3687--jam/official/resnet/resnet_model.py
+--- tf-models-3687--orig/official/resnet/resnet_model.py	2018-04-10 02:14:59.000000000 +0800
++++ tf-models-3687--jam/official/resnet/resnet_model.py	2018-07-20 12:28:04.708359725 +0800
+@@ -33,6 +33,40 @@
+ 
+ import tensorflow as tf
+ 
++
++from tensorflow.python.framework import ops
++jamme_mod = tf.load_op_library('jamme-op.so')
++
++
++@ops.RegisterGradient("JamMe")
++def _jam_me_grad(op, grad, nop_1, nop_2):
++  return [grad, None]
++
++@ops.RegisterGradient("DumpMe")
++def _dump_me_grad(op, grad):
++  return [grad, None]
++
++
++def _do_jam_output(inputs, info=""):
++    if inputs is not None:
++        #####inputs= tf.Print(inputs, [inputs], "====resnet:" + info + "aaa====")
++        info_str = str(inputs.op._id) + "#" + inputs.name.replace("/", "+").replace(":", "+") + "#" + inputs.dtype.name + "#" + "output"
++        #info_str = ""
++        inputs, inputs_orig, sim = jamme_mod.jam_me(inputs, info_str) 
++        #####inputs= tf.Print(inputs, [inputs, inputs_orig, sim], "====resnet:" + info + "bbb====")
++    return inputs
++
++def _do_dump_output(inputs, info=""):
++    if inputs is not None:
++        #####inputs= tf.Print(inputs, [inputs], "====resnet:" + info + "aaa====")
++        info_str = str(inputs.op._id) + "#" + inputs.name.replace("/", "+").replace(":", "+") + "#" + inputs.dtype.name + "#" + "output"
++        #info_str = ""
++        inputs = jamme_mod.dump_me(inputs, info_str)
++        #####inputs= tf.Print(inputs, [inputs, inputs_orig, sim], "====resnet:" + info + "bbb====")
++    return inputs
++
++
++
+ _BATCH_NORM_DECAY = 0.997
+ _BATCH_NORM_EPSILON = 1e-5
+ DEFAULT_VERSION = 2
+@@ -48,10 +82,22 @@
+   """Performs a batch normalization using a standard set of parameters."""
+   # We set fused=True for a significant performance boost. See
+   # https://www.tensorflow.org/performance/performance_guide#common_fused_ops
++  outputs = tf.layers.batch_normalization(
++      inputs=inputs, axis=1 if data_format == 'channels_first' else 3,
++      momentum=_BATCH_NORM_DECAY, epsilon=_BATCH_NORM_EPSILON, center=True,
++      scale=True, training=training, fused=True)
++  #print("========", " name", outputs.name, " op.name", outputs.op.name, " op.id", outputs.op._id, " op.type", outputs.op.type, " op.def.name", outputs.op.op_def.name)
++
++  #####outputs= tf.Print(outputs, [outputs], "====resnet:batch_norm aaa====")
++  outputs = _do_jam_output(outputs)
++  #####outputs= tf.Print(outputs, [outputs, inputs_orig, sim], "====resnet:batch_norm bbb====")
++  return outputs
++'''
+   return tf.layers.batch_normalization(
+       inputs=inputs, axis=1 if data_format == 'channels_first' else 3,
+       momentum=_BATCH_NORM_DECAY, epsilon=_BATCH_NORM_EPSILON, center=True,
+       scale=True, training=training, fused=True)
++'''
+ 
+ 
+ def fixed_padding(inputs, kernel_size, data_format):
+@@ -88,12 +134,22 @@
+   if strides > 1:
+     inputs = fixed_padding(inputs, kernel_size, data_format)
+ 
++  outputs = tf.layers.conv2d(
++      inputs=inputs, filters=filters, kernel_size=kernel_size, strides=strides,
++      padding=('SAME' if strides == 1 else 'VALID'), use_bias=False,
++      kernel_initializer=tf.variance_scaling_initializer(),
++      data_format=data_format)
++  #####outputs = tf.Print(outputs, [outputs], "====resnet:conv2d aaa====")
++  outputs = _do_jam_output(outputs)
++  #####outputs = tf.Print(outputs, [outputs, inputs_orig, sim], "====resnet:conv2d bbb====")
++  return outputs
++'''
+   return tf.layers.conv2d(
+       inputs=inputs, filters=filters, kernel_size=kernel_size, strides=strides,
+       padding=('SAME' if strides == 1 else 'VALID'), use_bias=False,
+       kernel_initializer=tf.variance_scaling_initializer(),
+       data_format=data_format)
+-
++'''
+ 
+ ################################################################################
+ # ResNet block definitions.
+@@ -134,13 +190,18 @@
+       data_format=data_format)
+   inputs = batch_norm(inputs, training, data_format)
+   inputs = tf.nn.relu(inputs)
++  inputs = _do_dump_output(inputs)
+ 
+   inputs = conv2d_fixed_padding(
+       inputs=inputs, filters=filters, kernel_size=3, strides=1,
+       data_format=data_format)
+   inputs = batch_norm(inputs, training, data_format)
+   inputs += shortcut
++  #####inputs = tf.Print(inputs, [inputs], "====resnet:bb-v1:eltwise-add aaa====")
++  inputs = _do_jam_output(inputs)
++  #####inputs = tf.Print(inputs, [inputs, inputs_orig], "====resnet:bb-v1:eltwise-add bbb====")
+   inputs = tf.nn.relu(inputs)
++  inputs = _do_dump_output(inputs)
+ 
+   return inputs
+ 
+@@ -172,6 +233,7 @@
+   shortcut = inputs
+   inputs = batch_norm(inputs, training, data_format)
+   inputs = tf.nn.relu(inputs)
++  inputs = _do_dump_output(inputs)
+ 
+   # The projection shortcut should come after the first batch norm and ReLU
+   # since it performs a 1x1 convolution.
+@@ -184,11 +246,19 @@
+ 
+   inputs = batch_norm(inputs, training, data_format)
+   inputs = tf.nn.relu(inputs)
++  inputs = _do_dump_output(inputs)
+   inputs = conv2d_fixed_padding(
+       inputs=inputs, filters=filters, kernel_size=3, strides=1,
+       data_format=data_format)
+ 
++  outputs = inputs + shortcut
++  #####outputs = tf.Print(outputs, [outputs], "====resnet:bb-v2:eltwise-add aaa====")
++  outputs = _do_jam_output(outputs)
++  #####outputs = tf.Print(outputs, [outputs, inputs_orig], "====resnet:bb-v2:eltwise-add bbb====")
++  return outputs
++'''
+   return inputs + shortcut
++'''
+ 
+ 
+ def _bottleneck_block_v1(inputs, filters, training, projection_shortcut,
+@@ -229,19 +299,25 @@
+       data_format=data_format)
+   inputs = batch_norm(inputs, training, data_format)
+   inputs = tf.nn.relu(inputs)
++  inputs = _do_dump_output(inputs)
+ 
+   inputs = conv2d_fixed_padding(
+       inputs=inputs, filters=filters, kernel_size=3, strides=strides,
+       data_format=data_format)
+   inputs = batch_norm(inputs, training, data_format)
+   inputs = tf.nn.relu(inputs)
++  inputs = _do_dump_output(inputs)
+ 
+   inputs = conv2d_fixed_padding(
+       inputs=inputs, filters=4 * filters, kernel_size=1, strides=1,
+       data_format=data_format)
+   inputs = batch_norm(inputs, training, data_format)
+   inputs += shortcut
++  #####inputs = tf.Print(inputs, [inputs], "====resnet:bnb-v1:eltwise-add aaa====")
++  inputs = _do_jam_output(inputs)
++  #####inputs = tf.Print(inputs, [inputs, inputs_orig], "====resnet:bnb-v1:eltwise-add bbb====")
+   inputs = tf.nn.relu(inputs)
++  inputs = _do_dump_output(inputs)
+ 
+   return inputs
+ 
+@@ -281,6 +357,7 @@
+   shortcut = inputs
+   inputs = batch_norm(inputs, training, data_format)
+   inputs = tf.nn.relu(inputs)
++  inputs = _do_dump_output(inputs)
+ 
+   # The projection shortcut should come after the first batch norm and ReLU
+   # since it performs a 1x1 convolution.
+@@ -293,17 +370,27 @@
+ 
+   inputs = batch_norm(inputs, training, data_format)
+   inputs = tf.nn.relu(inputs)
++  inputs = _do_dump_output(inputs)
+   inputs = conv2d_fixed_padding(
+       inputs=inputs, filters=filters, kernel_size=3, strides=strides,
+       data_format=data_format)
+ 
+   inputs = batch_norm(inputs, training, data_format)
+   inputs = tf.nn.relu(inputs)
++  inputs = _do_dump_output(inputs)
+   inputs = conv2d_fixed_padding(
+       inputs=inputs, filters=4 * filters, kernel_size=1, strides=1,
+       data_format=data_format)
+ 
++  outputs = inputs + shortcut
++  #####outputs = tf.Print(outputs, [outputs], "====resnet:bnb-v2:eltwise-add aaa====")
++  outputs = _do_jam_output(outputs)
++  #####outputs = tf.Print(outputs, [outputs, inputs_orig], "====resnet:bnb-v2:eltwise-add bbb====")
++
++  return outputs
++'''
+   return inputs + shortcut
++'''
+ 
+ 
+ def block_layer(inputs, filters, bottleneck, block_fn, blocks, strides,
+@@ -512,6 +599,7 @@
+             inputs=inputs, pool_size=self.first_pool_size,
+             strides=self.first_pool_stride, padding='SAME',
+             data_format=self.data_format)
++        inputs = _do_dump_output(inputs)
+         inputs = tf.identity(inputs, 'initial_max_pool')
+ 
+       for i, num_blocks in enumerate(self.block_sizes):
+@@ -524,6 +612,7 @@
+ 
+       inputs = batch_norm(inputs, training, self.data_format)
+       inputs = tf.nn.relu(inputs)
++      inputs = _do_dump_output(inputs)
+ 
+       # The current top layer has shape
+       # `batch_size x pool_size x pool_size x final_size`.
+@@ -532,9 +621,15 @@
+       # here because it performs better than AveragePooling2D.
+       axes = [2, 3] if self.data_format == 'channels_first' else [1, 2]
+       inputs = tf.reduce_mean(inputs, axes, keepdims=True)
++      #####inputs = tf.Print(inputs, [inputs], "====resnet:reduce_mean aaa====")
++      inputs = _do_jam_output(inputs)
++      #####inputs = tf.Print(inputs, [inputs, inputs_orig, sim], "====resnet:reduce_mean bbb====")
+       inputs = tf.identity(inputs, 'final_reduce_mean')
+ 
+       inputs = tf.reshape(inputs, [-1, self.final_size])
+       inputs = tf.layers.dense(inputs=inputs, units=self.num_classes)
++      #####inputs = tf.Print(inputs, [inputs], "====resnet:dense/activate aaa====")
++      inputs = _do_jam_output(inputs)
++      #####inputs = tf.Print(inputs, [inputs, inputs_orig], "====resnet:dense/activate bbb====")
+       inputs = tf.identity(inputs, 'final_dense')
+       return inputs
+diff -Naur tf-models-3687--orig/official/resnet/resnet_run_loop.py tf-models-3687--jam/official/resnet/resnet_run_loop.py
+--- tf-models-3687--orig/official/resnet/resnet_run_loop.py	2018-04-10 02:14:59.000000000 +0800
++++ tf-models-3687--jam/official/resnet/resnet_run_loop.py	2018-07-21 00:31:32.663668394 +0800
+@@ -35,6 +35,32 @@
+ from official.utils.logs import logger
+ 
+ 
++from tensorflow.python.training import session_run_hook
++from tensorflow.python.framework.load_library import load_op_library
++
++
++jamme_mod = load_op_library('jamme-op.so')
++
++
++def _do_jam_output(inputs, info=""):
++    if inputs is not None:
++        #####inputs= tf.Print(inputs, [inputs], "====resnet:" + info + "aaa====")
++        info_str = str(inputs.op._id) + "#" + inputs.name.replace("/", "+").replace(":", "+") + "#" + inputs.dtype.name + "#" + "output"
++        #info_str = ""
++        inputs, inputs_orig, sim = jamme_mod.jam_me(inputs, info_str) 
++        #####inputs= tf.Print(inputs, [inputs, inputs_orig, sim], "====resnet:" + info + "bbb====")
++    return inputs
++
++def _do_dump_variable(inputs, info=""):
++    if inputs is not None:
++        #####inputs= tf.Print(inputs, [inputs], "====resnet:" + info + "aaa====")
++        info_str = str(inputs.op._id) + "#" + inputs.name.replace("/", "+").replace(":", "+") + "#" + inputs.dtype.name + "#" + "variable"
++        #info_str = ""
++        inputs = jamme_mod.dump_me(inputs, info_str) 
++        #####inputs= tf.Print(inputs, [inputs, inputs_orig, sim], "====resnet:" + info + "bbb====")
++    return inputs
++
++
+ ################################################################################
+ # Functions for input processing.
+ ################################################################################
+@@ -72,7 +98,8 @@
+   if is_training:
+     # Shuffle the records. Note that we shuffle before repeating to ensure
+     # that the shuffling respects epoch boundaries.
+-    dataset = dataset.shuffle(buffer_size=shuffle_buffer)
++    #dataset = dataset.shuffle(buffer_size=shuffle_buffer)
++    dataset = dataset
+ 
+   # If we are training over multiple epochs before evaluating, repeat the
+   # dataset for the appropriate number of epochs.
+@@ -244,6 +271,7 @@
+   # Calculate loss, which includes softmax cross entropy and L2 regularization.
+   cross_entropy = tf.losses.softmax_cross_entropy(
+       logits=logits, onehot_labels=labels)
++  cross_entropy = _do_jam_output(cross_entropy)
+ 
+   # Create a tensor named cross_entropy for logging purposes.
+   tf.identity(cross_entropy, name='cross_entropy')
+@@ -256,12 +284,21 @@
+   loss_filter_fn = loss_filter_fn or exclude_batch_norm
+ 
+   # Add weight decay to the loss.
+-  l2_loss = weight_decay * tf.add_n(
+-      # loss is computed using fp32 for numerical stability.
+-      [tf.nn.l2_loss(tf.cast(v, tf.float32)) for v in tf.trainable_variables()
+-       if loss_filter_fn(v.name)])
++  if True:  # XXX modified code
++      my_sum = tf.add_n(
++          # loss is computed using fp32 for numerical stability.
++          [tf.nn.l2_loss(tf.cast(v, tf.float32)) for v in tf.trainable_variables()
++           if loss_filter_fn(v.name)])
++      l2_loss = weight_decay * my_sum
++      l2_loss = _do_jam_output(l2_loss)
++  else:
++      l2_loss = weight_decay * tf.add_n(
++          # loss is computed using fp32 for numerical stability.
++          [tf.nn.l2_loss(tf.cast(v, tf.float32)) for v in tf.trainable_variables()
++           if loss_filter_fn(v.name)])
+   tf.summary.scalar('l2_loss', l2_loss)
+   loss = cross_entropy + l2_loss
++  loss = _do_jam_output(loss)
+ 
+   if mode == tf.estimator.ModeKeys.TRAIN:
+     global_step = tf.train.get_or_create_global_step()
+@@ -280,6 +317,7 @@
+     if multi_gpu:
+       optimizer = tf.contrib.estimator.TowerOptimizer(optimizer)
+ 
++    my_vars = []
+     if loss_scale != 1:
+       # When computing fp16 gradients, often intermediate tensor values are
+       # so small, they underflow to 0. To avoid this, we multiply the loss by
+@@ -291,11 +329,19 @@
+       unscaled_grad_vars = [(grad / loss_scale, var)
+                             for grad, var in scaled_grad_vars]
+       minimize_op = optimizer.apply_gradients(unscaled_grad_vars, global_step)
++
++      #for g, v in unscaled_grad_vars:
++      for v in tf.trainable_variables():
++          v = _do_dump_variable(v)
++          v = tf.Print(v, [v], v.name, summarize=1)
++          my_vars.append(v)
+     else:
+       minimize_op = optimizer.minimize(loss, global_step)
+ 
+     update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
+     train_op = tf.group(minimize_op, update_ops)
++    if my_vars:
++        train_op = tf.group(train_op, my_vars)
+   else:
+     train_op = None
+ 
+@@ -381,6 +427,7 @@
+       inter_op_parallelism_threads=flags.inter_op_parallelism_threads,
+       intra_op_parallelism_threads=flags.intra_op_parallelism_threads,
+       allow_soft_placement=True)
++  session_config.gpu_options.allow_growth = True
+ 
+   # Set up a RunConfig to save checkpoint and set session config.
+   run_config = tf.estimator.RunConfig().replace(save_checkpoints_secs=1e9,
