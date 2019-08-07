@@ -81,6 +81,13 @@ class DumpMeOp : public AsyncOpKernel {
 	  const Tensor& info = ctx->input(1);
 
 	  ctx->set_output(0, in);
+	  if (IsRefType(ctx->input_dtype(0))) {
+		  ctx->forward_ref_input_to_ref_output(0, 0);
+	  } else {
+		  ctx->set_output(0, ctx->input(0));
+	  }
+
+
 
 	  string info_str = info.scalar<string>()();
 	  if (info_str != "") {
@@ -124,19 +131,23 @@ class DumpMeOp : public AsyncOpKernel {
 		  }
 		  string filename;
 		  if (is_copy_done == 1) {
-			  filename = std::to_string(ctx->step_id()) + "--" + info_str + "--" + shape_str + ".bin";
+			  filename = std::to_string(ctx->step_id()) + "--" + info_str + "-@" + std::to_string(file_id) + "-" + shape_str + ".bin";
 		  } else {
 			  std::cout << "==== Error: copy failed " << __LINE__ << std::endl;
-			  filename = std::to_string(ctx->step_id()) + "--" + info_str + "--" + shape_str + "--DUMP_ERR.bin";
+			  filename = std::to_string(ctx->step_id()) + "--" + info_str + "-@" + std::to_string(file_id) + "-" + shape_str + "--DUMP_ERR.bin";
 		  }
+		 file_id++	;
 		  std::ofstream fs_dat(filename, std::ofstream::binary);
 		  my_dat_size = in.NumElements() * sizeof(T);
+		  // TODO handle write error, long file name
 		  fs_dat.write(my_dat, my_dat_size);
 		  fs_dat.close();
 	  }
 
 	  done();
   }
+  private:
+  int file_id = 0;
 };
 
 template <typename Device, typename T>

@@ -7,6 +7,12 @@
 #include "tensorflow/core/framework/op_kernel.h"
 #include "tensorflow/core/framework/tensor_types.h"
 
+
+// 
+#define JAM_BIT_NUM	3
+#define JAM_BIT_RATIO	100	// shall be 0~100
+
+
 namespace tensorflow {
 namespace functor {
 
