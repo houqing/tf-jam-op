@@ -1,0 +1,62 @@
+diff -Naur tensorflow-orig/python/ops/gradients_impl.py tensorflow/python/ops/gradients_impl.py
+--- tensorflow-orig/python/ops/gradients_impl.py	2018-07-28 10:14:28.070443195 +0800
++++ tensorflow/python/ops/gradients_impl.py	2018-07-27 21:48:25.127156105 +0800
+@@ -53,6 +53,10 @@
+ from tensorflow.python.platform import tf_logging as logging
+ from tensorflow.python.util.tf_export import tf_export
+ 
++from tensorflow.python.ops.jamme_grad import do_jam
++
++
++
+ # Warn the user if we convert a sparse representation to dense with at
+ # least this number of elements.
+ _LARGE_SPARSE_NUM_ELEMENTS = 100000000
+@@ -309,7 +313,6 @@
+     raise ValueError("Num gradients %d generated for op %s do not match num "
+                      "inputs %d" % (len(grads), op.node_def, len(op.inputs)))
+ 
+-
+ def _StopOps(from_ops, stop_gradient_ops, pending_count):
+   """The set of ops that terminate the gradient computation.
+ 
+@@ -640,6 +643,11 @@
+                 in_grads = _MaybeCompile(grad_scope, op, func_call,
+                                          lambda: _SymGrad(op, out_grads))
+               in_grads = _AsList(in_grads)
++              in_grads_orig = _AsList(in_grads)
++              in_grads = []
++              for i in in_grads_orig:
++                  i = do_jam(i, "grad")
++                  in_grads.append(i)
+               _VerifyGeneratedGradients(in_grads, op)
+               if gate_gradients and len([x for x in in_grads
+                                          if x is not None]) > 1:
+diff -Naur tensorflow-orig/python/ops/jamme_grad.py tensorflow/python/ops/jamme_grad.py
+--- tensorflow-orig/python/ops/jamme_grad.py	1970-01-01 08:00:00.000000000 +0800
++++ tensorflow/python/ops/jamme_grad.py	2018-07-28 14:52:46.610177248 +0800
+@@ -0,0 +1,24 @@
++
++from tensorflow.python.ops.logging_ops import Print
++from tensorflow.python.framework.load_library import load_op_library
++from tensorflow.python.ops.grad_list import grad_dmp_list, grad_jam_list
++jamme_mod = load_op_library('jamme-op.so')
++
++
++jam_debug = True
++def do_jam(inputs, fmtype="undef"):
++    if inputs is not None:
++        inputs_name = inputs.name
++        print(inputs_name)
++        info_str = str(inputs.op._id) + "--" + inputs_name.replace("gradients/", "").replace("/", "-").replace(":", "-") + "--" + inputs.dtype.name + "." + fmtype
++        if inputs_name in grad_dmp_list:
++            inputs = jamme_mod.dump_me(inputs, info_str)
++
++        if inputs_name in grad_jam_list:
++            if jam_debug is True and inputs_name not in grad_dmp_list:
++                inputs = jamme_mod.dump_me(inputs, info_str)
++            inputs, inputs_orig, sim = jamme_mod.jam_me(inputs, info_str) 
++            if jam_debug is True:
++                inputs = jamme_mod.dump_me(inputs, info_str + "-jam")
++    return inputs
++
